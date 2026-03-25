@@ -1,0 +1,57 @@
+{
+    "servers": {
+        "okta-mcp-poc": {
+            "type": "stdio",
+            "command": "${workspaceFolder}/scripts/run-mcp.sh",
+            "args": [],
+            "env": {
+                "OKTA_ORG_URL": "${input:OKTA_ORG_URL}",
+                "OKTA_CLIENT_ORGURL": "${input:OKTA_ORG_URL}",
+                "OKTA_CLIENT_TOKEN": "${input:OKTA_CLIENT_TOKEN}",
+                "OKTA_CLIENT_ID": "${input:OKTA_CLIENT_ID}",
+                "OKTA_PRIVATE_KEY": "${input:OKTA_PRIVATE_KEY}",
+                "OKTA_KEY_ID": "${input:OKTA_KEY_ID}",
+                "OKTA_SCOPES": "${input:OKTA_SCOPES}"
+            }
+        }
+    },
+    "inputs": [
+        {
+            "type": "promptString",
+            "id": "OKTA_ORG_URL",
+            "description": "Okta Organization URL (e.g. https://dev-123456.okta.com)"
+        },
+        {
+            "type": "promptString",
+            "id": "OKTA_CLIENT_TOKEN",
+            "description": "Okta SSWS API Token — dev/test fallback (Security \u2192 API \u2192 Tokens)",
+            "password": true
+        },
+        {
+            "type": "promptString",
+            "id": "OKTA_CLIENT_ID",
+            "description": "Okta Service App Client ID (leave blank for SSWS token auth)",
+            "default": ""
+        },
+        {
+            "type": "promptString",
+            "id": "OKTA_PRIVATE_KEY",
+            "description": "RSA Private Key PEM — starts with -----BEGIN PRIVATE KEY----- (leave blank for SSWS token auth)",
+            "password": true,
+            "default": ""
+        },
+        {
+            "type": "promptString",
+            "id": "OKTA_KEY_ID",
+            "description": "Key ID registered on the Okta service app JWK set (leave blank for SSWS token auth)",
+            "password": true,
+            "default": ""
+        },
+        {
+            "type": "promptString",
+            "id": "OKTA_SCOPES",
+            "description": "OAuth2 scopes (space-separated)",
+            "default": "okta.users.manage okta.users.read okta.groups.manage okta.groups.read"
+        }
+    ]
+}

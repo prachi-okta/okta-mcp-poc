@@ -1,0 +1,19 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build Okta MCP Server (fat jar)",
+            "type": "shell",
+            "command": "export JAVA_HOME=$(/usr/libexec/java_home -v 21) && mvn package -DskipTests",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        }
+    ]
+}

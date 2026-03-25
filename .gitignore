@@ -1,0 +1,40 @@
+# ── Maven build output ────────────────────────────────────────────────────────
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
+# IntelliJ IDEA
+.idea/
+*.iws
+*.iml
+*.ipr
+
+# Eclipse
+.classpath
+.project
+.settings/
+bin/
+
+# NetBeans
+nbproject/private/
+nbbuild/
+dist/
+nbdist/
+nbactions.xml
+
+# VS Code (keep .vscode/mcp.json and .vscode/tasks.json, skip personal settings)
+.vscode/settings.json
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Secrets / credentials ─────────────────────────────────────────────────────
+*.env
+.env
+*.pem
+*.key
+*.p12
+*.jks
