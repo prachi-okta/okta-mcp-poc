@@ -1,33 +1,29 @@
 package com.okta.mcp.config;
 
 import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import io.modelcontextprotocol.server.transport.StdioServerTransport;
-import io.modelcontextprotocol.spec.ServerMcpTransport;
+import com.fasterxml.jackson.databind.json.JsonMapper;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Provides a custom StdioServerTransport with an ObjectMapper configured to
- * ignore unknown fields.
+ * MCP transport configuration for Streamable HTTP transport.
  *
- * VS Code's MCP client sends an "elicitation" field in ClientCapabilities
- * (MCP spec 2025-03-26+) which the MCP SDK 0.7.0 class McpSchema$ClientCapabilities
- * does not declare. Without this, Jackson throws:
- *   Unrecognized field "elicitation" ... not marked as ignorable
- * and the MCP handshake fails with error -32603.
+ * Replaces the previous StdioServerTransport with HTTP-based Streamable transport
+ * so the server can enforce OAuth 2.0 authorization per the MCP 2025-03-26 spec.
  *
- * StdioServerTransport has a constructor that accepts an ObjectMapper, and
- * MpcServerAutoConfiguration registers the transport as @ConditionalOnMissingBean,
- * so this bean takes precedence.
+ * The mcpServerJsonMapper bean overrides the MCP autoconfiguration's default
+ * JsonMapper (via @ConditionalOnMissingBean in McpServerAutoConfiguration).
+ * Disabling FAIL_ON_UNKNOWN_PROPERTIES ensures VS Code's "elicitation" field
+ * in ClientCapabilities (MCP spec 2025-03-26+) is silently ignored rather
+ * than causing a -32603 handshake failure.
  */
 @Configuration
 public class McpTransportConfig {
 
-    @Bean
-    public ServerMcpTransport stdioServerTransport() {
-        ObjectMapper mapper = new ObjectMapper()
-                .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
-        return new StdioServerTransport(mapper);
+    @Bean("mcpServerJsonMapper")
+    public JsonMapper mcpServerJsonMapper() {
+        return JsonMapper.builder()
+                .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+                .build();
     }
 }

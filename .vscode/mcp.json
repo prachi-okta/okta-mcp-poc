@@ -1,6 +1,10 @@
 {
     "servers": {
         "okta-mcp-poc": {
+            "type": "http",
+            "url": "http://localhost:8080/mcp"
+        },
+        "okta-mcp-poc-stdio": {
             "type": "stdio",
             "command": "${workspaceFolder}/scripts/run-mcp.sh",
             "args": [],

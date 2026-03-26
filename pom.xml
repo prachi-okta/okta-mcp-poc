@@ -26,17 +26,16 @@
 
   <dependencies>
 
-    <!-- Spring AI MCP Server – autoconfigure handles stdio transport when stdio=true -->
+    <!-- Spring AI MCP Server – Streamable HTTP transport (MCP spec 2025-03-26) -->
     <dependency>
       <groupId>org.springframework.ai</groupId>
       <artifactId>spring-ai-mcp-server-webmvc-spring-boot-starter</artifactId>
-      <exclusions>
-        <!-- No HTTP server needed for stdio transport -->
-        <exclusion>
-          <groupId>org.springframework.boot</groupId>
-          <artifactId>spring-boot-starter-tomcat</artifactId>
-        </exclusion>
-      </exclusions>
+    </dependency>
+
+    <!-- Spring Security OAuth2 Resource Server – validates Okta JWTs on every MCP request -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
     </dependency>
 
     <!-- ── Okta Java SDK ─────────────────────────────────────────────── -->
