@@ -1,0 +1,1174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Okta MCP Server — Token Console</title>
+  <style>
+    /* ── Reset & base ─────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0f1117;
+      --surface:   #1a1d27;
+      --surface2:  #22263a;
+      --border:    #2e3350;
+      --accent:    #007bff;
+      --accent2:   #00c9a7;
+      --danger:    #e74c3c;
+      --warn:      #f0a500;
+      --text:      #e2e8f0;
+      --muted:     #8892aa;
+      --code-bg:   #0d1117;
+      --radius:    10px;
+      --font:      'Segoe UI', system-ui, sans-serif;
+      --mono:      'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    /* ── Layout ───────────────────────────────────────────────────────── */
+    .app {
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    header .logo {
+      width: 32px;
+      height: 32px;
+    }
+
+    header h1 {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text);
+      flex: 1;
+    }
+
+    header .badge {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 2px 10px;
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    main {
+      flex: 1;
+      max-width: 960px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 32px 24px 64px;
+    }
+
+    /* ── Card ─────────────────────────────────────────────────────────── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+
+    .card-title {
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* ── Login screen ─────────────────────────────────────────────────── */
+    #login-screen {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 80px 24px;
+      text-align: center;
+      gap: 24px;
+    }
+
+    #login-screen .hero-icon {
+      font-size: 56px;
+    }
+
+    #login-screen h2 {
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    #login-screen p {
+      color: var(--muted);
+      max-width: 420px;
+    }
+
+    /* ── Buttons ──────────────────────────────────────────────────────── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      border: none;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+
+    .btn:hover  { opacity: 0.88; transform: translateY(-1px); }
+    .btn:active { transform: translateY(0); }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+      padding: 12px 28px;
+      font-size: 15px;
+    }
+
+    .btn-secondary {
+      background: var(--surface2);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    .btn-danger {
+      background: rgba(231,76,60,.15);
+      color: var(--danger);
+      border: 1px solid rgba(231,76,60,.3);
+    }
+
+    .btn-success {
+      background: rgba(0,201,167,.12);
+      color: var(--accent2);
+      border: 1px solid rgba(0,201,167,.3);
+    }
+
+    /* ── Token display ────────────────────────────────────────────────── */
+    .token-box {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 16px;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: #a5d6ff;
+      word-break: break-all;
+      line-height: 1.7;
+      max-height: 140px;
+      overflow-y: auto;
+      scrollbar-width: thin;
+      position: relative;
+    }
+
+    .token-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 10px;
+      flex-wrap: wrap;
+    }
+
+    /* ── Status pill ──────────────────────────────────────────────────── */
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 2px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .pill.valid   { background: rgba(0,201,167,.15); color: var(--accent2); border: 1px solid rgba(0,201,167,.25); }
+    .pill.expired { background: rgba(231,76,60,.12); color: var(--danger);  border: 1px solid rgba(231,76,60,.25); }
+
+    /* ── Claims table ─────────────────────────────────────────────────── */
+    .claims-grid {
+      display: grid;
+      gap: 2px;
+    }
+
+    .claim-row {
+      display: grid;
+      grid-template-columns: 180px 1fr;
+      gap: 8px;
+      padding: 7px 10px;
+      border-radius: 6px;
+    }
+
+    .claim-row:hover { background: var(--surface2); }
+
+    .claim-key {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: #79c0ff;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .claim-val {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--text);
+      word-break: break-all;
+    }
+
+    /* ── MCP test panel ───────────────────────────────────────────────── */
+    .test-row {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      margin-bottom: 12px;
+    }
+
+    .test-row label {
+      min-width: 80px;
+      padding-top: 9px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .test-row input, .test-row select {
+      flex: 1;
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 12px;
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 12px;
+      outline: none;
+    }
+
+    .test-row input:focus, .test-row select:focus {
+      border-color: var(--accent);
+    }
+
+    .response-box {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--text);
+      white-space: pre-wrap;
+      word-break: break-all;
+      min-height: 80px;
+      max-height: 320px;
+      overflow-y: auto;
+      scrollbar-width: thin;
+    }
+
+    .response-box.ok    { border-color: rgba(0,201,167,.4); }
+    .response-box.error { border-color: rgba(231,76,60,.4); }
+
+    /* ── Misc helpers ─────────────────────────────────────────────────── */
+    .row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .spacer { flex: 1; }
+    .divider { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
+    .hidden { display: none !important; }
+    .muted  { color: var(--muted); }
+
+    /* ── Toast ────────────────────────────────────────────────────────── */
+    #toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 18px;
+      font-size: 13px;
+      opacity: 0;
+      transform: translateY(8px);
+      transition: opacity .25s, transform .25s;
+      pointer-events: none;
+      z-index: 9999;
+    }
+
+    #toast.show { opacity: 1; transform: translateY(0); }
+
+    /* ── Spinner ──────────────────────────────────────────────────────── */
+    .spinner {
+      width: 18px; height: 18px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+      display: inline-block;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Expiry countdown ─────────────────────────────────────────────── */
+    #expiry-bar-wrap {
+      margin-top: 10px;
+      height: 4px;
+      background: var(--surface2);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    #expiry-bar {
+      height: 100%;
+      background: var(--accent2);
+      transition: width 1s linear, background 1s;
+    }
+
+    #expiry-label {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 5px;
+    }
+
+    /* ── Config override form ─────────────────────────────────────────── */
+    .config-form {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    @media (max-width: 600px) {
+      .config-form { grid-template-columns: 1fr; }
+    }
+
+    .field label {
+      display: block;
+      font-size: 11px;
+      color: var(--muted);
+      margin-bottom: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .field input {
+      width: 100%;
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 12px;
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 12px;
+      outline: none;
+    }
+
+    .field input:focus { border-color: var(--accent); }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ── Header ─────────────────────────────────────────────────────────── -->
+  <header>
+    <!-- Okta-ish shield icon (SVG inline) -->
+    <svg class="logo" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="20" cy="20" r="20" fill="#007bff"/>
+      <path d="M20 8C13.37 8 8 13.37 8 20C8 26.63 13.37 32 20 32C26.63 32 32 26.63 32 20C32 13.37 26.63 8 20 8ZM20 27C16.13 27 13 23.87 13 20C13 16.13 16.13 13 20 13C23.87 13 27 16.13 27 20C27 23.87 23.87 27 20 27Z" fill="white"/>
+    </svg>
+    <h1>Okta MCP Server — Token Console</h1>
+    <span class="badge" id="server-badge">localhost:8080</span>
+    <button class="btn btn-danger hidden" id="sign-out-btn" onclick="signOut()">Sign out</button>
+  </header>
+
+  <!-- ── Main ───────────────────────────────────────────────────────────── -->
+  <main>
+
+    <!-- ── Loading spinner ──────────────────────────────────────────── -->
+    <div id="loading-screen" style="text-align:center;padding:80px 0;">
+      <div class="spinner" style="width:36px;height:36px;margin:0 auto 16px;"></div>
+      <p class="muted" id="loading-msg">Loading configuration…</p>
+    </div>
+
+    <!-- ── Error screen ──────────────────────────────────────────────── -->
+    <div id="error-screen" class="hidden" style="text-align:center;padding:80px 0;">
+      <div style="font-size:48px;margin-bottom:16px;">⚠️</div>
+      <h2 id="error-title" style="margin-bottom:8px;"></h2>
+      <p id="error-msg" class="muted" style="max-width:480px;margin:0 auto 24px;"></p>
+      <button class="btn btn-secondary" onclick="window.location.href='/'">Retry</button>
+    </div>
+
+    <!-- ── Login screen ─────────────────────────────────────────────── -->
+    <div id="login-screen" class="hidden">
+      <div class="hero-icon">🔐</div>
+      <h2>Sign in with Okta</h2>
+      <p>Use the PKCE Authorization Code flow to obtain an access token for the MCP server.</p>
+
+      <!-- Config overrides (collapsed by default) -->
+      <div style="width:100%;max-width:560px;">
+        <details>
+          <summary style="cursor:pointer;color:var(--muted);font-size:13px;margin-bottom:12px;">
+            ⚙️ Override configuration
+          </summary>
+          <div class="card" style="text-align:left;margin-top:8px;">
+            <div class="card-title">OIDC / PKCE Settings</div>
+            <div class="config-form">
+              <div class="field">
+                <label>Issuer URI</label>
+                <input id="cfg-issuer" placeholder="https://…/oauth2/default" />
+              </div>
+              <div class="field">
+                <label>Client ID</label>
+                <input id="cfg-client-id" placeholder="0oa…" />
+              </div>
+              <div class="field" style="grid-column:1/-1">
+                <label>Scopes</label>
+                <input id="cfg-scopes" placeholder="openid profile email" />
+              </div>
+            </div>
+          </div>
+        </details>
+      </div>
+
+      <button class="btn btn-primary" id="login-btn" onclick="startLogin()">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+          <circle cx="12" cy="12" r="10" stroke="white" stroke-width="2"/>
+          <circle cx="12" cy="12" r="4" fill="white"/>
+        </svg>
+        Sign in with Okta
+      </button>
+
+      <div id="login-error" style="
+        display:none;
+        background:rgba(231,76,60,.08);
+        border:1px solid rgba(231,76,60,.3);
+        border-radius:8px;
+        padding:12px 16px;
+        color:var(--danger);
+        font-size:13px;
+        max-width:480px;
+        text-align:left;
+        margin-top:4px;
+      "></div>
+
+      <p class="muted" style="font-size:12px;">
+        Redirect URI: <code style="color:var(--accent)"id="redirect-uri-display"></code>
+      </p>
+    </div>
+
+    <!-- ── Authenticated dashboard ───────────────────────────────────── -->
+    <div id="auth-screen" class="hidden">
+
+      <div class="card" id="token-card">
+        <div class="card-title">
+          🎟 Access Token
+          <span id="token-status-pill" class="pill valid">● valid</span>
+          <span class="spacer"></span>
+          <span id="token-type" style="font-size:12px;color:var(--muted)"></span>
+        </div>
+
+        <div class="token-box" id="token-display"></div>
+
+        <div id="expiry-bar-wrap">
+          <div id="expiry-bar"></div>
+        </div>
+        <div id="expiry-label"></div>
+
+        <div class="token-actions">
+          <button class="btn btn-secondary" onclick="copyToken()">📋 Copy token</button>
+          <button class="btn btn-secondary" onclick="copyAsCurl()">🔗 Copy as cURL</button>
+          <button class="btn btn-secondary" onclick="refreshToken()">🔄 Refresh</button>
+        </div>
+      </div>
+
+      <!-- JWT Claims card -->
+      <div class="card">
+        <div class="card-title">🔍 Decoded JWT Claims</div>
+        <div class="claims-grid" id="claims-grid"></div>
+      </div>
+
+      <!-- MCP Test card -->
+      <div class="card">
+        <div class="card-title">🧪 MCP Server Test</div>
+
+        <div class="test-row">
+          <label>Method</label>
+          <select id="mcp-method" style="max-width:200px;" onchange="updatePayload()">
+            <option value="tools/list">tools/list</option>
+            <option value="tools/call">tools/call</option>
+          </select>
+        </div>
+
+        <div class="test-row" id="tool-name-row" style="display:none">
+          <label>Tool</label>
+          <select id="tool-name" onchange="updatePayload()">
+            <option value="list_users">list_users</option>
+            <option value="get_user">get_user</option>
+            <option value="list_groups">list_groups</option>
+            <option value="list_group_users">list_group_users</option>
+            <option value="list_applications">list_applications</option>
+          </select>
+        </div>
+
+        <div class="test-row" id="tool-args-row" style="display:none">
+          <label>Args (JSON)</label>
+          <input id="tool-args" placeholder='{"limit":5}' />
+        </div>
+
+        <div class="test-row">
+          <label>Payload</label>
+          <input id="mcp-payload" style="font-family:var(--mono);font-size:11px;" readonly />
+        </div>
+
+        <div style="margin:12px 0;">
+          <button class="btn btn-success" onclick="sendMcpRequest()">
+            ▶ Send Request
+          </button>
+        </div>
+
+        <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">Response</div>
+        <div class="response-box" id="mcp-response">— awaiting request —</div>
+      </div>
+
+    </div><!-- /auth-screen -->
+
+  </main>
+</div><!-- /app -->
+
+<!-- ── Toast ───────────────────────────────────────────────────────────── -->
+<div id="toast"></div>
+
+<!-- ── Script ─────────────────────────────────────────────────────────── -->
+<script>
+/* ════════════════════════════════════════════════════════════════════════
+   State
+   ════════════════════════════════════════════════════════════════════════ */
+const STATE = {
+  issuerUri:        '',
+  clientId:         '',
+  scopes:           '',
+  resourceUri:      '',     // canonical MCP server URI — sent as resource= param (RFC 8707)
+  authorizationEndpoint: '',
+  tokenEndpoint:    '',
+  accessToken:      null,
+  tokenExpiry:      null,   // Unix seconds
+  tokenIssued:      null,   // Unix seconds
+  expiryTimer:      null,
+  mcpSessionId:     null,   // SSE session endpoint e.g. /mcp?sessionId=...
+};
+
+/* ════════════════════════════════════════════════════════════════════════
+   Boot
+   ════════════════════════════════════════════════════════════════════════ */
+(async function boot() {
+  // 1. Load server config
+  let cfg;
+  try {
+    const res = await fetch('/api/ui-config');
+    if (!res.ok) throw new Error(`/api/ui-config → ${res.status}`);
+    cfg = await res.json();
+  } catch (e) {
+    showError('Could not load configuration', e.message);
+    return;
+  }
+
+  STATE.issuerUri = cfg.issuerUri || '';
+  STATE.clientId  = cfg.clientId  || '';
+  STATE.scopes    = cfg.scopes    || 'openid profile email';
+
+  // Populate override fields
+  document.getElementById('cfg-issuer').value    = STATE.issuerUri;
+  document.getElementById('cfg-client-id').value = STATE.clientId;
+  document.getElementById('cfg-scopes').value    = STATE.scopes;
+
+  // 2. RFC 9728: fetch Protected Resource Metadata → discover Authorization Server
+  //    Per MCP spec §4: client fetches /.well-known/oauth-protected-resource,
+  //    reads authorization_servers[0], then discovers AS metadata from Okta directly.
+  try {
+    const prm = await fetch('/.well-known/oauth-protected-resource').then(r => r.json());
+    STATE.resourceUri = prm.resource || window.location.origin;
+    const asIssuer    = (prm.authorization_servers || [])[0] || STATE.issuerUri;
+    STATE.issuerUri   = asIssuer;
+    // Update override field with resolved issuer
+    document.getElementById('cfg-issuer').value = asIssuer;
+    // 2b. Discover AS endpoints from Okta (RFC 8414)
+    try {
+      const asMeta = await fetch(asIssuer + '/.well-known/oauth-authorization-server').then(r => r.json());
+      STATE.authorizationEndpoint = asMeta.authorization_endpoint || '';
+      STATE.tokenEndpoint         = asMeta.token_endpoint         || '';
+    } catch (_) {
+      STATE.authorizationEndpoint = asIssuer + '/v1/authorize';
+      STATE.tokenEndpoint         = asIssuer + '/v1/token';
+    }
+  } catch (_) {
+    // Fallback: derive from cfg.issuerUri if PRM endpoint unavailable
+    STATE.resourceUri = window.location.origin;
+    if (STATE.issuerUri) {
+      STATE.authorizationEndpoint = STATE.issuerUri + '/v1/authorize';
+      STATE.tokenEndpoint         = STATE.issuerUri + '/v1/token';
+    }
+  }
+
+  // 3. Handle OAuth callback (code in URL)
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.has('code')) {
+    const code  = urlParams.get('code');
+    const state = urlParams.get('state');
+    await handleCallback(code, state);
+    return;
+  }
+
+  // 4. Check existing token in sessionStorage
+  const saved = sessionStorage.getItem('okta_mcp_token');
+  if (saved) {
+    try {
+      const t = JSON.parse(saved);
+      if (t.exp > Date.now() / 1000) {
+        renderDashboard(t.accessToken, t.exp, t.iat);
+        return;
+      }
+    } catch (_) {}
+  }
+
+  // 5. Show login screen
+  showLogin();
+})();
+
+/* ════════════════════════════════════════════════════════════════════════
+   PKCE helpers
+   ════════════════════════════════════════════════════════════════════════ */
+function base64urlEncode(buf) {
+  return btoa(String.fromCharCode(...new Uint8Array(buf)))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+async function generatePKCE() {
+  const verifierBytes = crypto.getRandomValues(new Uint8Array(64));
+  const verifier      = base64urlEncode(verifierBytes);
+  const challengeBuf  = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
+  const challenge     = base64urlEncode(challengeBuf);
+  return { verifier, challenge };
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   Login flow
+   ════════════════════════════════════════════════════════════════════════ */
+async function startLogin() {
+  const btn = document.getElementById('login-btn');
+  const errEl = document.getElementById('login-error');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner" style="width:16px;height:16px"></span> Redirecting to Okta…';
+  errEl.style.display = 'none';
+
+  try {
+    // Read overrides from form fields
+    const issuer   = document.getElementById('cfg-issuer').value.trim()    || STATE.issuerUri;
+    const clientId = document.getElementById('cfg-client-id').value.trim() || STATE.clientId;
+    const scopes   = document.getElementById('cfg-scopes').value.trim()    || STATE.scopes;
+
+    if (!issuer) throw new Error('OKTA_ISSUER_URI is not set. Enter it in "Override configuration" above.');
+    if (!clientId) throw new Error('OKTA_UI_CLIENT_ID is not set. Register an Okta SPA app and paste the Client ID.');
+
+    // Use already-discovered endpoints, or fall back to well-known conventions
+    let authEp = STATE.authorizationEndpoint || (issuer + '/v1/authorize');
+    let tokEp  = STATE.tokenEndpoint         || (issuer + '/v1/token');
+
+    // PKCE
+    const { verifier, challenge } = await generatePKCE();
+    const stateVal    = base64urlEncode(crypto.getRandomValues(new Uint8Array(12)));
+    const redirectUri = window.location.origin + '/';
+
+    // Persist PKCE + session state
+    sessionStorage.setItem('pkce_verifier',  verifier);
+    sessionStorage.setItem('pkce_state',     stateVal);
+    sessionStorage.setItem('pkce_client_id', clientId);
+    sessionStorage.setItem('pkce_scopes',    scopes);
+    sessionStorage.setItem('pkce_token_ep',  tokEp);
+    sessionStorage.setItem('pkce_redirect',  redirectUri);
+    sessionStorage.setItem('pkce_resource',  STATE.resourceUri || window.location.origin);
+
+    const params = new URLSearchParams({
+      response_type:         'code',
+      client_id:             clientId,
+      redirect_uri:          redirectUri,
+      scope:                 scopes,
+      state:                 stateVal,
+      code_challenge:        challenge,
+      code_challenge_method: 'S256',
+      // RFC 8707: bind token to this specific MCP server (required by MCP spec §8)
+      resource:              STATE.resourceUri || window.location.origin,
+    });
+
+    const authorizeUrl = authEp + '?' + params.toString();
+
+    // Try window.location first; fall back to window.open for embedded browsers
+    // (VS Code Simple Browser blocks external navigation)
+    const win = window.open(authorizeUrl, '_self');
+    if (!win) {
+      // Blocked — open in a new tab as fallback
+      window.open(authorizeUrl, '_blank');
+      errEl.textContent = 'A popup was blocked. Opened in a new tab instead — complete sign-in there and return here.';
+      errEl.style.display = 'block';
+    }
+  } catch (e) {
+    errEl.textContent = '❌ ' + e.message;
+    errEl.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+      <circle cx="12" cy="12" r="10" stroke="white" stroke-width="2"/>
+      <circle cx="12" cy="12" r="4" fill="white"/>
+    </svg> Sign in with Okta`;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   Callback handler
+   ════════════════════════════════════════════════════════════════════════ */
+async function handleCallback(code, returnedState) {
+  showLoading('Exchanging authorization code for token…');
+
+  const verifier    = sessionStorage.getItem('pkce_verifier');
+  const savedState  = sessionStorage.getItem('pkce_state');
+  const clientId    = sessionStorage.getItem('pkce_client_id') || STATE.clientId;
+  const scopes      = sessionStorage.getItem('pkce_scopes')    || STATE.scopes;
+  const tokenEp     = sessionStorage.getItem('pkce_token_ep')  || STATE.tokenEndpoint;
+  const redirectUri = sessionStorage.getItem('pkce_redirect')  || window.location.origin + '/';
+  const resourceUri = sessionStorage.getItem('pkce_resource')  || STATE.resourceUri || window.location.origin;
+
+  // Clean up PKCE state
+  ['pkce_verifier','pkce_state','pkce_client_id','pkce_scopes','pkce_token_ep','pkce_redirect','pkce_resource']
+    .forEach(k => sessionStorage.removeItem(k));
+
+  // Clean URL
+  window.history.replaceState({}, '', '/');
+
+  if (returnedState && returnedState !== savedState) {
+    showError('State mismatch', 'The OAuth state parameter does not match. This may indicate a CSRF attack.');
+    return;
+  }
+
+  if (!verifier) {
+    showError('PKCE verifier missing', 'Could not find the PKCE code verifier. Please try signing in again.');
+    return;
+  }
+
+  // Exchange code for token
+  let tokenData;
+  try {
+    const body = new URLSearchParams({
+      grant_type:    'authorization_code',
+      code,
+      redirect_uri:  redirectUri,
+      client_id:     clientId,
+      code_verifier: verifier,
+      // RFC 8707: include resource in token request so AS can bind token audience
+      resource:      resourceUri,
+    });
+
+    const res = await fetch(tokenEp, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body,
+    });
+
+    tokenData = await res.json();
+
+    if (tokenData.error) {
+      throw new Error(`${tokenData.error}: ${tokenData.error_description || ''}`);
+    }
+  } catch (e) {
+    showError('Token exchange failed', e.message);
+    return;
+  }
+
+  // Decode JWT to get exp/iat
+  const raw   = tokenData.access_token;
+  const parts = raw.split('.');
+  if (parts.length !== 3) {
+    showError('Invalid token', 'The access token is not a valid JWT.');
+    return;
+  }
+
+  let claims;
+  try {
+    claims = JSON.parse(atob(parts[1].replace(/-/g,'+').replace(/_/g,'/')));
+  } catch (e) {
+    showError('JWT decode error', e.message);
+    return;
+  }
+
+  // Persist to sessionStorage
+  sessionStorage.setItem('okta_mcp_token', JSON.stringify({
+    accessToken: raw,
+    exp: claims.exp,
+    iat: claims.iat || Math.floor(Date.now()/1000),
+  }));
+
+  renderDashboard(raw, claims.exp, claims.iat);
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   Dashboard rendering
+   ════════════════════════════════════════════════════════════════════════ */
+function renderDashboard(token, exp, iat) {
+  STATE.accessToken = token;
+  STATE.tokenExpiry = exp;
+  STATE.tokenIssued = iat || Math.floor(Date.now()/1000);
+
+  hide('loading-screen');
+  hide('error-screen');
+  hide('login-screen');
+  show('auth-screen');
+  show('sign-out-btn');
+
+  // Token display
+  document.getElementById('token-display').textContent = token;
+
+  // Decode and display claims
+  renderClaims(token);
+
+  // Start expiry countdown
+  startExpiryCountdown();
+
+  // Init MCP test payload
+  updatePayload();
+}
+
+function renderClaims(token) {
+  const parts = token.split('.');
+
+  // Render header
+  let header = {};
+  try { header = JSON.parse(atob(parts[0].replace(/-/g,'+').replace(/_/g,'/'))); } catch(_){}
+
+  // Render payload
+  let payload = {};
+  try { payload = JSON.parse(atob(parts[1].replace(/-/g,'+').replace(/_/g,'/'))); } catch(_){}
+
+  document.getElementById('token-type').textContent =
+    `alg: ${header.alg || '?'}  |  kid: ${header.kid ? header.kid.substring(0,12)+'…' : '?'}`;
+
+  const grid = document.getElementById('claims-grid');
+  grid.innerHTML = '';
+
+  const fmt = (k, v) => {
+    if (k === 'exp' || k === 'iat' || k === 'nbf') {
+      const d = new Date(v * 1000);
+      const diff = Math.round((v - Date.now()/1000) / 60);
+      const label = k === 'exp' ? (diff > 0 ? ` (+${diff}m)` : ` (${diff}m, expired)`) :
+                    k === 'iat' ? ` (issued)` : '';
+      return `${v}  →  ${d.toLocaleString()}${label}`;
+    }
+    if (Array.isArray(v)) return v.join(', ');
+    return String(v);
+  };
+
+  // Priority order for interesting claims
+  const priority = ['sub','email','name','ver','iss','aud','iat','exp','jti','scp','cid','uid'];
+  const all = Object.keys(payload);
+  const sorted = [...priority.filter(k => payload[k] !== undefined),
+                  ...all.filter(k => !priority.includes(k))];
+
+  for (const k of sorted) {
+    const row = document.createElement('div');
+    row.className = 'claim-row';
+    row.innerHTML = `
+      <span class="claim-key">${escHtml(k)}</span>
+      <span class="claim-val">${escHtml(fmt(k, payload[k]))}</span>`;
+    grid.appendChild(row);
+  }
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   Expiry countdown
+   ════════════════════════════════════════════════════════════════════════ */
+function startExpiryCountdown() {
+  if (STATE.expiryTimer) clearInterval(STATE.expiryTimer);
+  tick();
+  STATE.expiryTimer = setInterval(tick, 1000);
+
+  function tick() {
+    const now       = Date.now() / 1000;
+    const total     = STATE.tokenExpiry - STATE.tokenIssued;
+    const remaining = Math.max(0, STATE.tokenExpiry - now);
+    const pct       = total > 0 ? (remaining / total) * 100 : 0;
+
+    const bar   = document.getElementById('expiry-bar');
+    const label = document.getElementById('expiry-label');
+    const pill  = document.getElementById('token-status-pill');
+
+    bar.style.width = pct + '%';
+
+    if (remaining <= 0) {
+      bar.style.background = '#e74c3c';
+      pill.className = 'pill expired';
+      pill.textContent = '● expired';
+      label.textContent = 'Token has expired — please sign in again.';
+      clearInterval(STATE.expiryTimer);
+    } else {
+      const hue = Math.round(pct * 1.2);
+      bar.style.background = remaining < 300 ? '#f0a500' : '#00c9a7';
+      pill.className = 'pill valid';
+      pill.textContent = '● valid';
+      const m = Math.floor(remaining / 60);
+      const s = Math.floor(remaining % 60);
+      label.textContent = `Expires in ${m}m ${s}s  (${new Date(STATE.tokenExpiry*1000).toLocaleTimeString()})`;
+    }
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   Token actions
+   ════════════════════════════════════════════════════════════════════════ */
+function copyToken() {
+  if (!STATE.accessToken) return;
+  navigator.clipboard.writeText(STATE.accessToken).then(() => toast('Token copied!'));
+}
+
+function copyAsCurl() {
+  if (!STATE.accessToken) return;
+  const cmd = `curl -X POST http://localhost:8080/mcp \\\n  -H "Authorization: Bearer ${STATE.accessToken}" \\\n  -H "Content-Type: application/json" \\\n  -d '${document.getElementById('mcp-payload').value}'`;
+  navigator.clipboard.writeText(cmd).then(() => toast('cURL command copied!'));
+}
+
+function refreshToken() {
+  sessionStorage.removeItem('okta_mcp_token');
+  startLogin();
+}
+
+function signOut() {
+  if (STATE.expiryTimer) clearInterval(STATE.expiryTimer);
+  sessionStorage.removeItem('okta_mcp_token');
+  STATE.accessToken = null;
+  hide('auth-screen');
+  hide('sign-out-btn');
+  showLogin();
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   MCP test panel
+   ════════════════════════════════════════════════════════════════════════ */
+function updatePayload() {
+  const method = document.getElementById('mcp-method').value;
+  const nameRow = document.getElementById('tool-name-row');
+  const argsRow = document.getElementById('tool-args-row');
+
+  if (method === 'tools/list') {
+    nameRow.style.display = 'none';
+    argsRow.style.display = 'none';
+    document.getElementById('mcp-payload').value =
+      JSON.stringify({ jsonrpc:'2.0', id:1, method:'tools/list', params:{} });
+  } else {
+    nameRow.style.display = '';
+    argsRow.style.display = '';
+    const toolName = document.getElementById('tool-name').value;
+    let toolArgs = {};
+    try { toolArgs = JSON.parse(document.getElementById('tool-args').value || '{}'); } catch(_){}
+    document.getElementById('mcp-payload').value =
+      JSON.stringify({ jsonrpc:'2.0', id:1, method:'tools/call', params:{ name:toolName, arguments:toolArgs } });
+  }
+}
+
+// ── SSE-based MCP session ─────────────────────────────────────────────────
+// Spring AI 1.0.0-M6 uses WebMvcSseServerTransport:
+//   GET /sse  → opens SSE stream; server sends "event: endpoint\ndata: /mcp?sessionId=<id>"
+//   POST /mcp?sessionId=<id> → send requests; responses come back on SSE stream as "event: message"
+
+let _sseReader   = null;
+const _msgQueue  = [];          // buffered incoming SSE messages
+const _msgWaiting = [];         // resolve callbacks waiting for the next message
+
+function _dispatchSseMessage(data) {
+  if (_msgWaiting.length > 0) {
+    _msgWaiting.shift()(data);
+  } else {
+    _msgQueue.push(data);
+  }
+}
+
+function _nextSseMessage() {
+  return new Promise(resolve => {
+    if (_msgQueue.length > 0) { resolve(_msgQueue.shift()); return; }
+    _msgWaiting.push(resolve);
+  });
+}
+
+async function ensureInitialized() {
+  if (STATE.mcpSessionId) return;
+
+  const sseRes = await fetch('/sse', {
+    headers: { 'Authorization': 'Bearer ' + STATE.accessToken },
+  });
+  if (!sseRes.ok) throw new Error(`SSE connect failed: HTTP ${sseRes.status}`);
+
+  _sseReader = sseRes.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  // Read SSE stream until we get the "endpoint" event
+  const endpoint = await new Promise((resolve, reject) => {
+    let eventType = null;
+    (async () => {
+      try {
+        while (true) {
+          const { value, done } = await _sseReader.read();
+          if (done) { reject(new Error('SSE closed before endpoint event')); return; }
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop();
+          for (const line of lines) {
+            if (line.startsWith('event:'))      { eventType = line.slice(6).trim(); }
+            else if (line === '')               { eventType = null; }
+            else if (line.startsWith('data:') && eventType === 'endpoint') {
+              resolve(line.slice(5).trim()); return;
+            }
+          }
+        }
+      } catch (e) { reject(e); }
+    })();
+  });
+
+  STATE.mcpSessionId = endpoint; // e.g. /mcp?sessionId=abc-123
+
+  // Keep reading SSE in background; dispatch "message" events to waiters
+  (async () => {
+    let evType = null;
+    try {
+      while (true) {
+        const { value, done } = await _sseReader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+        for (const line of lines) {
+          if (line.startsWith('event:'))      { evType = line.slice(6).trim(); }
+          else if (line === '')               { evType = null; }
+          else if (line.startsWith('data:') && evType === 'message') {
+            _dispatchSseMessage(line.slice(5).trim());
+          }
+        }
+      }
+    } catch (_) {}
+  })();
+}
+
+async function mcpFetch(body) {
+  const endpoint = STATE.mcpSessionId || '/mcp';
+  const res = await fetch(endpoint, {
+    method:  'POST',
+    headers: {
+      'Content-Type':  'application/json',
+      'Accept':        'application/json, text/event-stream',
+      'Authorization': 'Bearer ' + STATE.accessToken,
+    },
+    body: JSON.stringify(body),
+  });
+  return res;
+}
+
+async function sendMcpRequest() {
+  const respEl = document.getElementById('mcp-response');
+  const payload = document.getElementById('mcp-payload').value;
+
+  respEl.textContent = '⏳ Connecting to MCP…';
+  respEl.className   = 'response-box';
+
+  try {
+    // Step 1: open SSE session (noop if already open)
+    await ensureInitialized();
+
+    respEl.textContent = '⏳ Sending request…';
+
+    // Step 2: POST the request — server will reply via SSE stream
+    const res = await mcpFetch(JSON.parse(payload));
+    if (!res.ok) {
+      const txt = await res.text();
+      respEl.textContent = `HTTP ${res.status}\n\n${txt}`;
+      respEl.className   = 'response-box error';
+      return;
+    }
+
+    // Step 3: wait for "event: message" to arrive on the SSE stream
+    const msgData = await Promise.race([
+      _nextSseMessage(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout waiting for MCP response (10s)')), 10000)),
+    ]);
+
+    let pretty = msgData;
+    try { pretty = JSON.stringify(JSON.parse(msgData), null, 2); } catch(_){}
+
+    respEl.textContent = pretty;
+    respEl.className   = 'response-box ok';
+  } catch (e) {
+    respEl.textContent = '❌ ' + e.message;
+    respEl.className   = 'response-box error';
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   UI helpers
+   ════════════════════════════════════════════════════════════════════════ */
+function showLogin() {
+  hide('loading-screen');
+  hide('error-screen');
+  hide('auth-screen');
+  show('login-screen');
+  document.getElementById('redirect-uri-display').textContent = window.location.origin + '/';
+}
+
+function showLoading(msg) {
+  document.getElementById('loading-msg').textContent = msg || 'Loading…';
+  show('loading-screen');
+  hide('login-screen');
+  hide('auth-screen');
+  hide('error-screen');
+}
+
+function showError(title, msg) {
+  document.getElementById('error-title').textContent = title;
+  document.getElementById('error-msg').textContent   = msg;
+  hide('loading-screen');
+  hide('login-screen');
+  hide('auth-screen');
+  show('error-screen');
+}
+
+function show(id) { document.getElementById(id).classList.remove('hidden'); }
+function hide(id) { document.getElementById(id).classList.add('hidden'); }
+
+let toastTimeout;
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimeout);
+  toastTimeout = setTimeout(() => el.classList.remove('show'), 2500);
+}
+</script>
+</body>
+</html>

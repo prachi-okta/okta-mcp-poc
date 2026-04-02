@@ -24,6 +24,9 @@ public class McpTransportConfig {
     public JsonMapper mcpServerJsonMapper() {
         return JsonMapper.builder()
                 .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+                // VS Code sends LoggingLevel as a JSON object instead of a string enum;
+                // treat unrecognised enum values as null rather than throwing -32603.
+                .enable(DeserializationFeature.READ_UNKNOWN_ENUM_VALUES_AS_NULL)
                 .build();
     }
 }

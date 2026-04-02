@@ -1,19 +1,26 @@
 {
-    "version": "2.0.0",
-    "tasks": [
-        {
-            "label": "Build Okta MCP Server (fat jar)",
-            "type": "shell",
-            "command": "export JAVA_HOME=$(/usr/libexec/java_home -v 21) && mvn package -DskipTests",
-            "group": {
-                "kind": "build",
-                "isDefault": true
-            },
-            "presentation": {
-                "reveal": "always",
-                "panel": "shared"
-            },
-            "problemMatcher": []
-        }
-    ]
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Build Okta MCP Server (fat jar)",
+			"type": "shell",
+			"command": "export JAVA_HOME=$(/usr/libexec/java_home -v 21) && mvn package -DskipTests",
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			},
+			"presentation": {
+				"reveal": "always",
+				"panel": "shared"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Run Okta MCP Server (local)",
+			"type": "shell",
+			"command": "export JAVA_HOME=$(/usr/libexec/java_home -v 21) && OKTA_ORG_URL=https://okta-mcp-server.oktapreview.com OKTA_ISSUER_URI=https://okta-mcp-server.oktapreview.com/oauth2/default OKTA_UI_CLIENT_ID=0oawx300ytJAZc4o21d7 $JAVA_HOME/bin/java -jar target/okta-mcp-poc-0.0.1-SNAPSHOT.jar --spring.profiles.active=local",
+			"isBackground": true,
+			"problemMatcher": []
+		}
+	]
 }
