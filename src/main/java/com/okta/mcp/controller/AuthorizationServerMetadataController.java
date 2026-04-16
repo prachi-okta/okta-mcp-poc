@@ -1,124 +1,106 @@
 package com.okta.mcp.controller;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.net.URL;
+import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
- * Exposes the OAuth 2.0 Authorization Server Metadata endpoint (RFC 8414).
+ * OAuth 2.0 Authorization Server Metadata (RFC 8414) + Dynamic Client Registration (RFC 7591).
  *
- * Returns our server's own metadata with three key overrides on top of Okta's:
- *   - authorization_endpoint → /authorize  (redirect_uri proxy)
- *   - token_endpoint         → /token       (redirect_uri proxy)
- *   - registration_endpoint  → /register    (fake DCR — returns pre-registered client_id)
- *   - issuer                 → http://127.0.0.1:8080 (must match fetch URL per RFC 8414 §3.3)
+ * VS Code reads these endpoints to discover how to authenticate with this MCP server.
+ * The MCP server acts as a proxy AS — it accepts VS Code's PKCE requests and relays
+ * them to the real Okta AS. This solves the random loopback port problem:
  *
- * This allows VS Code Copilot to complete the full PKCE flow with a fixed
- * redirect URI (http://127.0.0.1:8080/oauth2/callback) registered in Okta,
- * while VS Code's random loopback port is handled transparently by the proxy.
+ *   VS Code → POST /oauth2/authorize (random port redirect_uri)
+ *          → MCP server stores port, relays to Okta with fixed redirect_uri
+ *          → Okta → /oauth2/callback → MCP server relays code back to VS Code's random port
+ *          → VS Code → POST /oauth2/token → MCP server proxies to Okta → returns real token
+ *
+ * Discovery URL: GET /.well-known/oauth-authorization-server
+ * Registration:  POST /oauth2/register  (returns pre-configured Okta SPA client_id)
  */
 @RestController
 public class AuthorizationServerMetadataController {
 
     private static final Logger log = LoggerFactory.getLogger(AuthorizationServerMetadataController.class);
-    private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    @Value("${okta.auth.issuer-uri}")
-    private String issuerUri;
+    /** Base URL of this MCP server — used as the proxy AS issuer. */
+    @Value("${okta.server.base-url:http://127.0.0.1:8080}")
+    private String serverBaseUrl;
 
-    @Value("${okta.resource.uri}")
-    private String resourceUri;
+    /** Client ID of the Okta SPA app — returned to VS Code via dynamic client registration. */
+    @Value("${okta.ui.clientId:}")
+    private String uiClientId;
+
+    /** Scopes this AS supports. */
+    @Value("${okta.ui.scopes:openid profile email}")
+    private String uiScopes;
 
     /**
-     * Returns the proxy authorization endpoint on THIS server.
-     * VS Code will send its random redirect_uri here; OAuthProxyController handles
-     * the substitution so only one fixed redirect URI needs to be in Okta.
+     * RFC 8414 — Authorization Server Metadata.
+     *
+     * VS Code fetches this to discover the authorize/token/registration endpoints.
+     * The issuer is our MCP server (proxy AS), not Okta directly.
      */
-    private String proxyAuthEndpoint() {
-        try {
-            java.net.URI uri = new java.net.URI(resourceUri);
-            return uri.getScheme() + "://" + uri.getAuthority() + "/authorize";
-        } catch (Exception e) {
-            return "http://localhost:8080/oauth2/authorize";
-        }
-    }
-
-    private String proxyTokenEndpoint() {
-        try {
-            java.net.URI uri = new java.net.URI(resourceUri);
-            return uri.getScheme() + "://" + uri.getAuthority() + "/token";
-        } catch (Exception e) {
-            return "http://localhost:8080/token";
-        }
-    }
-
-    private String proxyRegistrationEndpoint() {
-        try {
-            java.net.URI uri = new java.net.URI(resourceUri);
-            return uri.getScheme() + "://" + uri.getAuthority() + "/register";
-        } catch (Exception e) {
-            return "http://localhost:8080/register";
-        }
-    }
-
     @GetMapping(value = "/.well-known/oauth-authorization-server",
                 produces = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<Map<String, Object>> metadata() {
+    public Map<String, Object> metadata() {
+        log.info("[OAuthProxy AS] GET /.well-known/oauth-authorization-server");
+        List<String> scopeList = Arrays.asList(uiScopes.split("\\s+"));
+        // No registration_endpoint — client_id is pre-registered in the customer's Okta org.
+        // VS Code 1.103+ will prompt the user to enter client_id once, then store and reuse it.
+        // Advertising a registration_endpoint causes VS Code to attempt DCR which we don't need.
+        return Map.of(
+            "issuer",                                  serverBaseUrl,
+            "authorization_endpoint",                  serverBaseUrl + "/authorize",
+            "token_endpoint",                          serverBaseUrl + "/token",
+            "response_types_supported",                List.of("code"),
+            "grant_types_supported",                   List.of("authorization_code"),
+            "code_challenge_methods_supported",        List.of("S256"),
+            "token_endpoint_auth_methods_supported",   List.of("none"),
+            "scopes_supported",                        scopeList
+        );
+    }
 
-        // Primary: proxy Okta's own RFC 8414 metadata document.
-        // Okta exposes this at: {issuer}/.well-known/oauth-authorization-server
-        String metaUrlStr = issuerUri + "/.well-known/oauth-authorization-server";
-        log.info("[OIDC] GET /.well-known/oauth-authorization-server — fetching Okta AS metadata from: {}", metaUrlStr);
-        try {
-            URL metaUrl = new URL(metaUrlStr);
-            Map<String, Object> oktaMeta = new java.util.LinkedHashMap<>(MAPPER.readValue(metaUrl, new TypeReference<>() {}));
-            // Override authorization_endpoint with our proxy so VS Code's random redirect_uri
-            // is accepted — OAuthProxyController translates it to the fixed Okta-registered URI.
-            oktaMeta.put("authorization_endpoint", proxyAuthEndpoint());
-            oktaMeta.put("token_endpoint", proxyTokenEndpoint());
-            oktaMeta.put("registration_endpoint", proxyRegistrationEndpoint());
-            try {
-                java.net.URI uri = new java.net.URI(resourceUri);
-                oktaMeta.put("issuer", uri.getScheme() + "://" + uri.getAuthority());
-            } catch (Exception ignored) {}
-            log.info("[OIDC] ✅ AS metadata proxied — authorization_endpoint={}, token_endpoint={}, registration_endpoint={}",
-                    proxyAuthEndpoint(), proxyTokenEndpoint(), proxyRegistrationEndpoint());
-            return ResponseEntity.ok()
-                    .header("Access-Control-Allow-Origin", "*")
-                    .header("Cache-Control", "no-store")
-                    .body(oktaMeta);
-        } catch (Exception e) {
-            log.warn("[OIDC] ⚠️  Could not fetch Okta AS metadata from {} — returning static fallback. Reason: {}",
-                    metaUrlStr, e.getMessage());
-        }
+    /**
+     * RFC 7591 — Dynamic Client Registration.
+     *
+     * VS Code calls this to obtain a client_id before starting the PKCE flow.
+     * We return the pre-configured Okta SPA client_id so that subsequent
+     * /oauth2/authorize and /oauth2/token requests carry the right client_id
+     * when we relay them to Okta.
+     *
+     * POST /oauth2/register
+     * Body: { "redirect_uris": ["http://127.0.0.1:{randomPort}/callback"], ... }
+     * Response: { "client_id": "<okta-spa-client-id>", ... }
+     */
+    @PostMapping(value = {"/oauth2/register", "/register"},
+                 consumes = MediaType.APPLICATION_JSON_VALUE,
+                 produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<Map<String, Object>> register(@RequestBody Map<String, Object> request) {
+        log.info("[OAuthProxy AS] POST /oauth2/register — client_name={}", request.get("client_name"));
 
-        // Fallback: return a minimal static document built from the issuer URI.
-        // This covers the case where the Okta org is unreachable at request time.
-        log.info("[OIDC] Returning static fallback AS metadata for issuer: {}", issuerUri);
-        return ResponseEntity.ok()
-                .header("Access-Control-Allow-Origin", "*")
-                .body(Map.ofEntries(
-                        Map.entry("issuer",                                issuerUri),
-                        Map.entry("authorization_endpoint",               proxyAuthEndpoint()),
-                        Map.entry("token_endpoint",                        proxyTokenEndpoint()),
-                        Map.entry("registration_endpoint",                 proxyRegistrationEndpoint()),
-                        Map.entry("jwks_uri",                              issuerUri + "/v1/keys"),
-                        Map.entry("userinfo_endpoint",                     issuerUri + "/v1/userinfo"),
-                        Map.entry("introspection_endpoint",                issuerUri + "/v1/introspect"),
-                        Map.entry("response_types_supported",              List.of("code")),
-                        Map.entry("code_challenge_methods_supported",      List.of("S256")),
-                        Map.entry("grant_types_supported",                 List.of("authorization_code", "client_credentials")),
-                        Map.entry("token_endpoint_auth_methods_supported", List.of("client_secret_basic", "client_secret_post", "none"))
-                ));
+        Map<String, Object> response = new HashMap<>();
+        response.put("client_id",                  uiClientId);
+        response.put("client_name",                "Okta MCP Server");
+        response.put("redirect_uris",              List.of(serverBaseUrl + "/oauth2/callback", serverBaseUrl + "/callback"));
+        response.put("grant_types",                List.of("authorization_code"));
+        response.put("response_types",             List.of("code"));
+        response.put("token_endpoint_auth_method", "none"); // public PKCE client — no secret
+
+        log.info("[OAuthProxy AS] Returning client_id={} to VS Code", uiClientId);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 }

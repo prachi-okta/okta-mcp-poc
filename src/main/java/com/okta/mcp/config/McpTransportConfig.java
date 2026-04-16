@@ -1,9 +1,17 @@
 package com.okta.mcp.config;
 
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.JsonToken;
+import com.fasterxml.jackson.databind.DeserializationContext;
 import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JavaType;
+import com.fasterxml.jackson.databind.MapperFeature;
+import com.fasterxml.jackson.databind.deser.DeserializationProblemHandler;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+
+import java.io.IOException;
 
 /**
  * MCP transport configuration for Streamable HTTP transport.
@@ -24,9 +32,23 @@ public class McpTransportConfig {
     public JsonMapper mcpServerJsonMapper() {
         return JsonMapper.builder()
                 .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
-                // VS Code sends LoggingLevel as a JSON object instead of a string enum;
-                // treat unrecognised enum values as null rather than throwing -32603.
+                // Handles enum deserialized from an unknown *string* value → null
                 .enable(DeserializationFeature.READ_UNKNOWN_ENUM_VALUES_AS_NULL)
+                .enable(MapperFeature.ALLOW_COERCION_OF_SCALARS)
+                // VS Code sends LoggingLevel as a JSON *object* {} instead of a string enum.
+                // READ_UNKNOWN_ENUM_VALUES_AS_NULL only works for string tokens.
+                // This handler catches any unexpected token during deserialization
+                // (including START_OBJECT where a scalar/enum is expected), skips the
+                // entire value tree, and returns null — preventing the -32603 crash on initialize.
+                .addHandler(new DeserializationProblemHandler() {
+                    @Override
+                    public Object handleUnexpectedToken(DeserializationContext ctxt,
+                            JavaType targetType, JsonToken t, JsonParser p,
+                            String failureMsg) throws IOException {
+                        p.skipChildren(); // consume the unexpected token tree
+                        return null;
+                    }
+                })
                 .build();
     }
 }

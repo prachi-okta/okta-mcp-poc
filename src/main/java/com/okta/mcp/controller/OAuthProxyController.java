@@ -1,197 +1,194 @@
 package com.okta.mcp.controller;
 
-import jakarta.servlet.http.HttpServletResponse;
+import com.okta.mcp.config.OAuthProxyService;
+import com.okta.mcp.config.OAuthProxyService.PendingCallback;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.stereotype.Controller;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestClient;
 
-import java.io.IOException;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
+import java.net.URI;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * OAuth 2.0 PKCE proxy — bridges VS Code Copilot's random loopback redirect URIs
- * to the single fixed redirect URI registered in Okta.
+ * OAuth 2.0 Proxy — Authorization and Token endpoints.
  *
- * VS Code picks a random port (e.g. http://127.0.0.1:33418/) on every PKCE flow.
- * We intercept three steps:
+ * This is the heart of the "proxy AS" pattern that solves VS Code's random loopback port problem.
  *
- *   POST /register        — fake DCR: returns pre-registered client_id immediately
- *   GET  /authorize       — saves VS Code's random redirect_uri, forwards to Okta
- *                            with redirect_uri=http://127.0.0.1:8080/oauth2/callback
- *   GET  /oauth2/callback — Okta posts code here; we forward it to VS Code's random port
- *   POST /token           — swaps redirect_uri back to fixed callback, calls Okta token endpoint
+ * Problem recap:
+ *   VS Code starts a local HTTP server on a random port (e.g. 54321) and uses it as redirect_uri.
+ *   Okta Custom AS requires exact redirect_uri match — random ports can't be pre-registered.
  *
- * Only ONE redirect URI needs to be registered in Okta:
- *   http://127.0.0.1:8080/oauth2/callback
+ * Solution:
+ *   This controller intercepts VS Code's PKCE flow and replaces the random redirect_uri with our
+ *   fixed URI (http://127.0.0.1:8080/oauth2/callback), then relays everything through.
+ *
+ * Full VS Code flow:
+ *   1. VS Code reads /.well-known/oauth-protected-resource → authorization_servers=[http://127.0.0.1:8080]
+ *   2. VS Code reads /.well-known/oauth-authorization-server → our proxy endpoints
+ *   3. VS Code calls POST /oauth2/register → gets back client_id=<okta-spa-client-id>
+ *   4. VS Code opens browser: GET /oauth2/authorize?redirect_uri=http://127.0.0.1:54321/callback&state=...
+ *   5. THIS controller stores state→54321, 302s to Okta's real /authorize with fixed redirect_uri
+ *   6. User logs in → Okta → GET /oauth2/callback?code=...&state=...
+ *   7. OAuthCallbackController looks up state → 302 to http://127.0.0.1:54321/callback?code=...
+ *   8. VS Code's local server receives code, calls POST /oauth2/token
+ *   9. THIS controller proxies token request to Okta with corrected redirect_uri
+ *  10. VS Code receives real Okta access token, sends it as Bearer on all MCP requests ✅
  */
-@Controller
+@RestController
 public class OAuthProxyController {
 
     private static final Logger log = LoggerFactory.getLogger(OAuthProxyController.class);
 
+    @Autowired
+    private OAuthProxyService proxyService;
+
+    /** Base URL of this MCP server — used as the fixed redirect_uri sent to Okta. */
+    @Value("${okta.server.base-url:http://127.0.0.1:8080}")
+    private String serverBaseUrl;
+
+    /** Issuer URI of the real Okta AS — used to derive authorize + token endpoint URLs. */
     @Value("${okta.auth.issuer-uri}")
-    private String issuerUri;
-
-    @Value("${okta.resource.uri}")
-    private String resourceUri;
-
-    @Value("${okta.ui.clientId:}")
-    private String configuredClientId;
-
-    /** state → original redirect_uri sent by VS Code */
-    private final ConcurrentHashMap<String, String> pendingStates = new ConcurrentHashMap<>();
+    private String oktaIssuerUri;
 
     /**
-     * Fake Dynamic Client Registration (RFC 7591) endpoint.
+     * Proxy Authorization Endpoint.
      *
-     * VS Code attempts DCR when it has no stored client_id. Rather than letting it fail
-     * (which causes immediate "Canceled: Canceled"), we return our pre-registered client_id
-     * so VS Code proceeds with the PKCE flow using the correct Okta app.
+     * VS Code sends its random-port redirect_uri here. We:
+     *   1. Parse the random port from VS Code's redirect_uri
+     *   2. Store state → port mapping (so /oauth2/callback can relay back)
+     *   3. 302 redirect to Okta's real authorize endpoint with our fixed redirect_uri
+     *   4. Drop the `resource` param — Okta Custom AS rejects it (causes policy failure)
      */
-    @PostMapping(value = "/register", consumes = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<Map<String, Object>> register(@RequestBody(required = false) Map<String, Object> body) {
-        log.info("[OAuth Proxy] 📋 DCR /register — returning pre-registered client_id={}", configuredClientId);
-        return ResponseEntity.ok(Map.of(
-                "client_id",                  configuredClientId,
-                "client_id_issued_at",         System.currentTimeMillis() / 1000,
-                "token_endpoint_auth_method",  "none",
-                "grant_types",                 java.util.List.of("authorization_code"),
-                "response_types",              java.util.List.of("code"),
-                "redirect_uris",               java.util.List.of(callbackUri()),
-                "scope",                       "openid profile email"
-        ));
-    }
+    @GetMapping({"/oauth2/authorize", "/authorize"})
+    public ResponseEntity<Void> authorize(
+            @RequestParam("client_id")             String clientId,
+            @RequestParam("redirect_uri")          String redirectUri,    // VS Code's random port
+            @RequestParam("state")                 String state,
+            @RequestParam("code_challenge")        String codeChallenge,
+            @RequestParam("code_challenge_method") String codeChallengeMethod,
+            @RequestParam(value = "scope",    defaultValue = "openid profile email") String scope,
+            @RequestParam(value = "response_type", defaultValue = "code") String responseType,
+            @RequestParam(value = "resource",      required = false) String resource) {
 
-    /** Fixed callback URI registered in Okta — derived from the server base URL. */
-    private String callbackUri() {
-        try {
-            java.net.URI uri = new java.net.URI(resourceUri);
-            return uri.getScheme() + "://" + uri.getAuthority() + "/oauth2/callback";
-        } catch (Exception e) {
-            return "http://localhost:8080/oauth2/callback";
-        }
-    }
+        // Parse VS Code's random port + callback path from the redirect_uri.
+        // VS Code sends redirect_uri=http://127.0.0.1:33418 (no path) or with trailing "/".
+        // URI.getPath() returns "" for no-path URIs — relay to "/" (VS Code listens at root).
+        URI vsCodeRedirectUri = URI.create(redirectUri);
+        int port = vsCodeRedirectUri.getPort();
+        String path = vsCodeRedirectUri.getPath();
+        if (path == null || path.isEmpty()) path = "/";
 
-    /**
-     * Step 1 — VS Code hits this endpoint with its random redirect_uri.
-     * We save that redirect_uri keyed by state, then forward to Okta substituting
-     * our fixed callback URI.
-     */
-    @GetMapping("/authorize")
-    public void authorize(@RequestParam Map<String, String> params,
-                          HttpServletResponse response) throws IOException {
-
-        String originalRedirectUri = params.get("redirect_uri");
-        String state = params.get("state");
-        log.info("[OAuth Proxy] ▶ authorize — state={} originalRedirectUri={}", state, originalRedirectUri);
-
-        if (state != null && originalRedirectUri != null) {
-            pendingStates.put(state, originalRedirectUri);
+        if (port < 1024 || port > 65535) {
+            log.warn("[OAuthProxy] Rejected invalid port={} from redirect_uri={}", port, redirectUri);
+            return ResponseEntity.badRequest().build();
         }
 
-        // Forward all params to Okta, replacing redirect_uri with our fixed callback
-        StringBuilder url = new StringBuilder(issuerUri + "/v1/authorize?");
-        String sep = "";
-        for (Map.Entry<String, String> e : params.entrySet()) {
-            String key = e.getKey();
-            String val = "redirect_uri".equals(key) ? callbackUri() : e.getValue();
-            url.append(sep)
-               .append(URLEncoder.encode(key, StandardCharsets.UTF_8))
-               .append("=")
-               .append(URLEncoder.encode(val, StandardCharsets.UTF_8));
-            sep = "&";
+        // Store state → VS Code's random port so OAuthCallbackController can relay
+        proxyService.register(state, port, path);
+
+        // Build the real Okta authorize URL with our fixed redirect_uri
+        String ourCallbackUri = serverBaseUrl + "/oauth2/callback";
+        String oktaAuthorizeEp = oktaIssuerUri + "/v1/authorize";
+
+        String oktaAuthorizeUrl = oktaAuthorizeEp
+                + "?response_type="         + encode(responseType)
+                + "&client_id="             + encode(clientId)
+                + "&redirect_uri="          + encode(ourCallbackUri)
+                + "&scope="                 + encode(scope)
+                + "&state="                 + encode(state)
+                + "&code_challenge="        + encode(codeChallenge)
+                + "&code_challenge_method=" + encode(codeChallengeMethod);
+
+        // Pass through the resource parameter if provided — Okta Custom AS may use it
+        // to bind the aud claim in the issued token.  VS Code sends it so that the
+        // token audience matches the MCP resource URI.
+        // NOTE: if your Okta Custom AS rejects the resource param, you can remove this.
+        if (resource != null && !resource.isBlank()) {
+            oktaAuthorizeUrl += "&resource=" + encode(resource);
+            log.info("[OAuthProxy] Authorize: passing resource={} to Okta", resource);
         }
 
-        log.info("[OAuth Proxy] ↗ redirecting to Okta authorize");
-        response.sendRedirect(url.toString());
-    }
-
-    /**
-     * Step 2 — Okta redirects here with the auth code.
-     * We look up the original redirect_uri for this state and forward everything to
-     * VS Code's local callback server so it can complete the token exchange.
-     */
-    @GetMapping("/oauth2/callback")
-    public void callback(@RequestParam Map<String, String> params,
-                         HttpServletResponse response) throws IOException {
-
-        String state = params.get("state");
-        String originalRedirectUri = pendingStates.remove(state);
-        log.info("[OAuth Proxy] ◀ callback — state={} code={} originalRedirectUri={}",
-                state, params.containsKey("code") ? "<present>" : "<missing>", originalRedirectUri);
-
-        if (originalRedirectUri == null) {
-            log.error("[OAuth Proxy] ❌ Unknown state — no pending auth for state={}", state);
-            response.sendError(HttpServletResponse.SC_BAD_REQUEST,
-                    "Unknown OAuth state — no pending authorization found.");
-            return;
-        }
-
-        // Forward all params (code, state, etc.) to VS Code's original callback URI
-        StringBuilder redirectUrl = new StringBuilder(originalRedirectUri);
-        String sep = originalRedirectUri.contains("?") ? "&" : "?";
-        for (Map.Entry<String, String> e : params.entrySet()) {
-            redirectUrl.append(sep)
-                       .append(URLEncoder.encode(e.getKey(), StandardCharsets.UTF_8))
-                       .append("=")
-                       .append(URLEncoder.encode(e.getValue(), StandardCharsets.UTF_8));
-            sep = "&";
-        }
-
-        log.info("[OAuth Proxy] ↗ forwarding code to VS Code callback");
-        response.sendRedirect(redirectUrl.toString());
+        log.info("[OAuthProxy] Authorize: port={} state={} → relaying to Okta", port, state);
+        return ResponseEntity.status(HttpStatus.FOUND)
+                .location(URI.create(oktaAuthorizeUrl))
+                .build();
     }
 
     /**
-     * Step 3 — VS Code calls POST /token (derived from our base URL).
-     * We swap the redirect_uri back to our fixed callback URI before forwarding to
-     * Okta's real token endpoint, so the redirect_uri matches what was sent in Step 1.
+     * Proxy Token Endpoint.
+     *
+     * VS Code sends the authorization code + PKCE verifier here.
+     * We substitute the redirect_uri with our fixed URI (Okta requires it to match what
+     * was used in the authorize request) and proxy the request to Okta's token endpoint.
+     * The real Okta access token is returned directly to VS Code.
      */
-    @PostMapping(value = "/token",
+    @PostMapping(value = {"/oauth2/token", "/token"},
                  consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
-    public ResponseEntity<String> token(@RequestParam Map<String, String> params) {
-        log.info("[OAuth Proxy] ▶ token exchange — grant_type={}, has_code={}",
-                params.get("grant_type"), params.containsKey("code"));
+    public ResponseEntity<String> token(
+            @RequestParam MultiValueMap<String, String> body) {
 
-        // Swap VS Code's original random redirect_uri with our fixed callback URI
-        MultiValueMap<String, String> body = new LinkedMultiValueMap<>();
-        for (Map.Entry<String, String> e : params.entrySet()) {
-            String val = "redirect_uri".equals(e.getKey()) ? callbackUri() : e.getValue();
-            body.add(e.getKey(), val);
-        }
-        log.info("[OAuth Proxy] ↗ forwarding token request to Okta (redirect_uri={})", callbackUri());
+        // Replace VS Code's random redirect_uri with our fixed one
+        MultiValueMap<String, String> proxiedBody = new LinkedMultiValueMap<>(body);
+        proxiedBody.set("redirect_uri", serverBaseUrl + "/oauth2/callback");
 
-        String oktaTokenEndpoint = issuerUri + "/v1/token";
+        String code = body.getFirst("code");
+        log.info("[OAuthProxy] Token: code={} → proxying to Okta", code != null ? code.substring(0, 8) + "..." : "null");
+
+        String oktaTokenEp = oktaIssuerUri + "/v1/token";
+
         try {
-            String oktaResponse = RestClient.create()
+            ResponseEntity<String> oktaResponse = RestClient.create()
                     .post()
-                    .uri(oktaTokenEndpoint)
+                    .uri(URI.create(oktaTokenEp))
                     .contentType(MediaType.APPLICATION_FORM_URLENCODED)
-                    .body(body)
+                    .body(proxiedBody)
                     .retrieve()
-                    .body(String.class);
-            log.info("[OAuth Proxy] ✅ token exchange succeeded");
-            return ResponseEntity.ok()
+                    .onStatus(status -> status.isError(), (req, resp) -> {
+                        // Don't throw — let us read the body and relay the error to VS Code
+                    })
+                    .toEntity(String.class);
+
+            log.info("[OAuthProxy] Token: Okta responded with status={}", oktaResponse.getStatusCode());
+
+            // Log partial token response body for diagnostics (helps diagnose aud / iss mismatch)
+            String responseBody = oktaResponse.getBody();
+            if (responseBody != null && log.isDebugEnabled()) {
+                log.debug("[OAuthProxy] Token response body (first 300 chars): {}",
+                        responseBody.length() > 300 ? responseBody.substring(0, 300) + "…" : responseBody);
+            } else if (responseBody != null) {
+                // Always log enough to see token_type and whether access_token is present
+                int atIdx = responseBody.indexOf("access_token");
+                log.info("[OAuthProxy] Token response: access_token={}, token_type={}",
+                        atIdx >= 0 ? "present" : "MISSING",
+                        responseBody.contains("Bearer") ? "Bearer" : responseBody.contains("bearer") ? "bearer" : "?");
+            }
+
+            return ResponseEntity.status(oktaResponse.getStatusCode())
                     .contentType(MediaType.APPLICATION_JSON)
-                    .body(oktaResponse);
+                    .body(responseBody);
         } catch (Exception e) {
-            log.error("[OAuth Proxy] ❌ token exchange failed: {}", e.getMessage());
-            return ResponseEntity.status(400)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body("{\"error\":\"token_exchange_failed\",\"error_description\":\"" + e.getMessage() + "\"}");
+            log.error("[OAuthProxy] Token proxy failed: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                    .body("{\"error\":\"proxy_error\",\"error_description\":\"" + e.getMessage() + "\"}");
+        }
+    }
+
+    private static String encode(String value) {
+        try {
+            return java.net.URLEncoder.encode(value, java.nio.charset.StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            return value;
         }
     }
 }

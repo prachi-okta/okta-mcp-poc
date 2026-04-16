@@ -163,4 +163,57 @@ public class OktaClientProvider {
         }
         return applicationUsersApi;
     }
+
+    // ── Option 2 POC: per-request org routing (POC criteria #3) ─────────────
+
+    /**
+     * Returns an ApiClient pointed at the given orgUrl, using the same SSWS/PKJ credentials
+     * configured for this provider.
+     *
+     * Used by Option 2 (XAA cross-org): the exchanged JWT from okta-mcp-server.oktapreview.com
+     * carries a custom claim `customer_org` containing the customer's org URL
+     * (e.g. https://prachi.oktapreview.com). The MCP tool handler reads this claim and calls
+     * forOrg(customerOrgUrl).userApi() to route SDK calls to the right org.
+     *
+     * The returned client is NOT cached — a new instance is built per tool call.
+     * For production, add a bounded cache keyed by orgUrl.
+     *
+     * POC acceptance criteria #3:
+     *   list_users tool call returns users from prachi.oktapreview.com, not okta-mcp-server.oktapreview.com.
+     */
+    public OktaClientProvider forOrg(String targetOrgUrl) {
+        if (targetOrgUrl == null || targetOrgUrl.isBlank() || targetOrgUrl.equals(orgUrl)) {
+            return this; // same org — use cached default
+        }
+        log.info("[XAA] Building per-request ApiClient for org={}", targetOrgUrl);
+        OktaClientProvider proxy = new OktaClientProvider();
+        proxy.orgUrl     = targetOrgUrl;
+        proxy.clientId   = this.clientId;
+        proxy.privateKey = this.privateKey;
+        proxy.keyId      = this.keyId;
+        proxy.scopes     = this.scopes;
+        proxy.apiToken   = this.apiToken;
+        // Force build immediately (no lazy init needed — short-lived instance)
+        proxy.apiClient  = proxy.build();
+        proxy.userApi    = new UserApi(proxy.apiClient);
+        proxy.groupApi   = new GroupApi(proxy.apiClient);
+        proxy.applicationApi = new ApplicationApi(proxy.apiClient);
+        return proxy;
+    }
+
+    /**
+     * Extracts the customer_org custom claim from an XAA-issued JWT (Option 2).
+     *
+     * The XAA grant policy in okta-mcp-server.oktapreview.com must be configured to
+     * embed the customer's org URL as a custom claim named "customer_org".
+     * Returns null if the claim is absent (pre-XAA tokens / Option 1 tokens).
+     */
+    public static String extractCustomerOrg(org.springframework.security.oauth2.jwt.Jwt jwt) {
+        String customerOrg = jwt.getClaimAsString("customer_org");
+        if (customerOrg != null && !customerOrg.isBlank()) {
+            LoggerFactory.getLogger(OktaClientProvider.class)
+                    .info("[XAA] customer_org claim found in JWT: {}", customerOrg);
+        }
+        return customerOrg;
+    }
 }
